@@ -32,6 +32,7 @@ import {
   LineChart,
   Line
 } from 'recharts';
+import { API_BASE_URL } from '../config';
 
 function ManagerDashboard() {
   const navigate = useNavigate();
@@ -100,13 +101,13 @@ function ManagerDashboard() {
       const token = localStorage.getItem('token');
       
       // Fetch Team members
-      const teamRes = await fetch('http://localhost:5000/api/manager/team', {
+      const teamRes = await fetch(`${API_BASE_URL}/api/manager/team`, {
         headers: { 'Authorization': `Bearer ${token}` }
       });
       const teamData = await teamRes.json();
 
       // Fetch weekly counts
-      const weeklyRes = await fetch('http://localhost:5000/api/manager/updates/weekly', {
+      const weeklyRes = await fetch(`${API_BASE_URL}/api/manager/updates/weekly`, {
         headers: { 'Authorization': `Bearer ${token}` }
       });
       const weeklyData = await weeklyRes.json();
@@ -129,7 +130,7 @@ function ManagerDashboard() {
     setAiSummary(null);
     try {
       const token = localStorage.getItem('token');
-      const response = await fetch('http://localhost:5000/api/manager/ai-summary', {
+      const response = await fetch(`${API_BASE_URL}/api/manager/ai-summary`, {
         headers: { 'Authorization': `Bearer ${token}` }
       });
       const data = await response.json();
@@ -155,7 +156,7 @@ function ManagerDashboard() {
     
     try {
       const token = localStorage.getItem('token');
-      const response = await fetch(`http://localhost:5000/api/manager/member/${memberId}`, {
+      const response = await fetch(`${API_BASE_URL}/api/manager/member/${memberId}`, {
         headers: { 'Authorization': `Bearer ${token}` }
       });
       const data = await response.json();
@@ -183,7 +184,7 @@ function ManagerDashboard() {
     
     try {
       const token = localStorage.getItem('token');
-      const response = await fetch('http://localhost:5000/api/manager/message', {
+      const response = await fetch(`${API_BASE_URL}/api/manager/message`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

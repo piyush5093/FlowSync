@@ -23,6 +23,7 @@ import {
   ArrowUp,
   Menu
 } from 'lucide-react';
+import { API_BASE_URL } from '../config';
 
 function MemberDashboard() {
   const navigate = useNavigate();
@@ -85,7 +86,7 @@ function MemberDashboard() {
       const token = localStorage.getItem('token');
       
       // Fetch user updates
-      const response = await fetch('http://localhost:5000/api/updates/my', {
+      const response = await fetch(`${API_BASE_URL}/api/updates/my`, {
         headers: { 'Authorization': `Bearer ${token}` }
       });
       const data = await response.json();
@@ -96,7 +97,7 @@ function MemberDashboard() {
       }
 
       // Fetch direct feedback messages
-      const msgResponse = await fetch('http://localhost:5000/api/updates/messages', {
+      const msgResponse = await fetch(`${API_BASE_URL}/api/updates/messages`, {
         headers: { 'Authorization': `Bearer ${token}` }
       });
       const msgData = await msgResponse.json();
@@ -211,7 +212,7 @@ function MemberDashboard() {
     setAiInsight(null); // Clear previous insight
     try {
       const token = localStorage.getItem('token');
-      const response = await fetch('http://localhost:5000/api/updates', {
+      const response = await fetch(`${API_BASE_URL}/api/updates`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

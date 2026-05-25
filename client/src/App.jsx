@@ -6,6 +6,8 @@ import Login from './pages/Login';
 import Signup from './pages/Signup';
 import ManagerDashboard from './pages/ManagerDashboard';
 import MemberDashboard from './pages/MemberDashboard';
+import Profile from './pages/Profile';
+import PageNotFound from './pages/PageNotFound';
 import ProtectedRoute from './components/ProtectedRoute';
 
 function PageWrapper({ children }) {
@@ -52,8 +54,18 @@ function AnimatedRoutes() {
           } 
         />
 
+        {/* Protected Profile Route */}
+        <Route 
+          path="/profile" 
+          element={
+            <ProtectedRoute>
+              <PageWrapper><Profile /></PageWrapper>
+            </ProtectedRoute>
+          } 
+        />
+
         {/* Fallback Catch-All */}
-        <Route path="*" element={<Navigate to="/" replace />} />
+        <Route path="*" element={<PageWrapper><PageNotFound /></PageWrapper>} />
       </Routes>
     </AnimatePresence>
   );

@@ -33,6 +33,9 @@ const UpdateSchema = new mongoose.Schema({
   encouragement: {
     type: String
   },
+  lastEditedAt: {
+    type: Date
+  },
   date: {
     type: Date,
     required: true,

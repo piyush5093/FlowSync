@@ -59,10 +59,10 @@ Update: ${updateText}`;
     // Return standard fallback
     return {
       sentiment: 'neutral',
-      summary: 'Status update submitted.',
+      summary: updateText,
       hasBlocker: false,
       blockerText: '',
-      encouragement: 'Keep up the good work and push towards your goals!'
+      encouragement: 'Keep up the good work!'
     };
   }
 };

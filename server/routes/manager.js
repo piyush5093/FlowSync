@@ -97,6 +97,7 @@ router.get('/team', async (req, res) => {
         name: member.name,
         email: member.email,
         createdAt: member.createdAt,
+        managerNote: member.managerNote || '',
         todayUpdate,
         weeklyHistory,
         totalUpdatesThisWeek
@@ -284,7 +285,8 @@ router.get('/member/:id', async (req, res) => {
           id: member._id,
           name: member.name,
           email: member.email,
-          createdAt: member.createdAt
+          createdAt: member.createdAt,
+          managerNote: member.managerNote || ''
         },
         timeline,
         totalUpdatesThisWeek,
@@ -323,6 +325,33 @@ router.post('/message', async (req, res) => {
     });
 
     res.status(201).json({ success: true, data: newMessage });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// @desc    Update a member's private manager note
+// @route   PUT /api/manager/member/:id/note
+// @access  Private (Manager only)
+router.put('/member/:id/note', async (req, res) => {
+  try {
+    const memberId = req.params.id;
+    const { note } = req.body;
+
+    const team = await Team.findOne({ managerId: req.user.id });
+    if (!team || !team.members.includes(memberId)) {
+      return res.status(403).json({ success: false, message: 'Not authorized to manage this member' });
+    }
+
+    const member = await User.findOne({ _id: memberId, role: 'member' });
+    if (!member) {
+      return res.status(404).json({ success: false, message: 'Member not found' });
+    }
+
+    member.managerNote = note !== undefined ? note.trim() : '';
+    await member.save();
+
+    res.json({ success: true, message: 'Private note saved successfully', data: member.managerNote });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }

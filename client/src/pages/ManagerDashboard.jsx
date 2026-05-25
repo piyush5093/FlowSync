@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
   Activity, 
@@ -21,7 +21,10 @@ import {
   ArrowUp,
   Menu,
   Award,
-  ArrowRight
+  ArrowRight,
+  Search,
+  StickyNote,
+  FileText
 } from 'lucide-react';
 import { 
   BarChart, 
@@ -63,11 +66,19 @@ function ManagerDashboard() {
   // Expand states for team card list items
   const [expandedMemberId, setExpandedMemberId] = useState(null);
   
+  // Search & Filter states
+  const [searchTerm, setSearchTerm] = useState('');
+  const [filterType, setFilterType] = useState('all'); // 'all', 'submitted', 'pending', 'blocker'
+  
   // Modal States
   const [selectedMemberId, setSelectedMemberId] = useState(null);
   const [modalData, setModalData] = useState(null);
   const [loadingModal, setLoadingModal] = useState(false);
   const [showPendingModal, setShowPendingModal] = useState(false);
+  
+  // Private Notes state
+  const [managerNoteText, setManagerNoteText] = useState('');
+  const [savingNote, setSavingNote] = useState(false);
   
   // Custom navigation & layout states
   const [bellDropdownOpen, setBellDropdownOpen] = useState(false);
@@ -92,19 +103,28 @@ function ManagerDashboard() {
           const profileRes = await fetch(`${API_BASE_URL}/api/auth/me`, {
             headers: { 'Authorization': `Bearer ${token}` }
           });
+          
+          if (profileRes.status === 401) {
+            handleLogout();
+            return;
+          }
+
           const profileData = await profileRes.json();
           if (profileRes.ok && profileData.success) {
             setManager(profileData.user);
             localStorage.setItem('user', JSON.stringify(profileData.user));
+          } else {
+            handleLogout();
+            return;
           }
+        } else {
+          handleLogout();
+          return;
         }
       } catch (err) {
         console.error('Error fetching manager profile:', err);
-      }
-      
-      const userString = localStorage.getItem('user');
-      if (userString) {
-        setManager(JSON.parse(userString));
+        handleLogout();
+        return;
       }
       
       fetchDashboardData();
@@ -129,11 +149,21 @@ function ManagerDashboard() {
   const fetchDashboardData = async () => {
     try {
       const token = localStorage.getItem('token');
+      if (!token) {
+        handleLogout();
+        return;
+      }
       
       // 1. Fetch team details
       const detailsRes = await fetch(`${API_BASE_URL}/api/teams/my`, {
         headers: { 'Authorization': `Bearer ${token}` }
       });
+
+      if (detailsRes.status === 401) {
+        handleLogout();
+        return;
+      }
+
       const detailsData = await detailsRes.json();
 
       if (detailsRes.ok && detailsData.success && detailsData.data) {
@@ -143,12 +173,24 @@ function ManagerDashboard() {
         const teamRes = await fetch(`${API_BASE_URL}/api/manager/team`, {
           headers: { 'Authorization': `Bearer ${token}` }
         });
+
+        if (teamRes.status === 401) {
+          handleLogout();
+          return;
+        }
+
         const teamData = await teamRes.json();
 
         // 3. Fetch weekly counts
         const weeklyRes = await fetch(`${API_BASE_URL}/api/manager/updates/weekly`, {
           headers: { 'Authorization': `Bearer ${token}` }
         });
+
+        if (weeklyRes.status === 401) {
+          handleLogout();
+          return;
+        }
+
         const weeklyData = await weeklyRes.json();
 
         if (teamRes.ok && weeklyRes.ok) {
@@ -243,6 +285,7 @@ function ManagerDashboard() {
     setLoadingModal(true);
     setModalData(null);
     setFeedbackText('');
+    setManagerNoteText('');
     
     try {
       const token = localStorage.getItem('token');
@@ -252,6 +295,7 @@ function ManagerDashboard() {
       const data = await response.json();
       if (response.ok) {
         setModalData(data.data);
+        setManagerNoteText(data.data.member.managerNote || '');
       }
     } catch (error) {
       console.error('Error fetching member details:', error);
@@ -264,6 +308,49 @@ function ManagerDashboard() {
     setSelectedMemberId(null);
     setModalData(null);
     setFeedbackText('');
+    setManagerNoteText('');
+  };
+
+  // Save private manager note
+  const handleSaveNote = async (e) => {
+    e.preventDefault();
+    setSavingNote(true);
+    try {
+      const token = localStorage.getItem('token');
+      const response = await fetch(`${API_BASE_URL}/api/manager/member/${selectedMemberId}/note`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ note: managerNoteText })
+      });
+      const data = await response.json();
+      if (response.ok) {
+        setToastMsg('Private note saved successfully! 📝');
+        setShowToast(true);
+        setTimeout(() => setShowToast(false), 3000);
+        
+        // Update local modal data
+        setModalData(prev => ({
+          ...prev,
+          member: {
+            ...prev.member,
+            managerNote: managerNoteText
+          }
+        }));
+        
+        // Refresh team list to show note indicator
+        fetchDashboardData();
+      } else {
+        alert(data.message || 'Failed to save private note');
+      }
+    } catch (error) {
+      console.error('Error saving private note:', error);
+      alert('Error connecting to backend note services');
+    } finally {
+      setSavingNote(false);
+    }
   };
 
   // Send feedback message helper
@@ -346,6 +433,28 @@ function ManagerDashboard() {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-[#0f172a] text-slate-100 flex flex-col items-center justify-center relative p-6 overflow-hidden">
+        {/* Background Soft Blobs */}
+        <div className="absolute top-0 left-0 w-full h-full overflow-hidden pointer-events-none z-0">
+          <div className="absolute top-[-10%] right-[-10%] w-[450px] h-[450px] rounded-full bg-purple-600/10 blur-[120px]"></div>
+          <div className="absolute bottom-[-10%] left-[-10%] w-[400px] h-[400px] rounded-full bg-blue-600/10 blur-[100px]"></div>
+        </div>
+        <div className="relative z-10 flex flex-col items-center space-y-6 animate-pulse">
+          <div className="w-16 h-16 rounded-2xl bg-gradient-to-tr from-blue-500 to-purple-600 flex items-center justify-center shadow-2xl">
+            <Activity className="w-8 h-8 text-white" />
+          </div>
+          <h2 className="text-xl font-extrabold bg-gradient-to-r from-blue-400 to-purple-500 bg-clip-text text-transparent">
+            FlowSync
+          </h2>
+          <div className="w-8 h-8 border-4 border-purple-500/30 border-t-purple-500 rounded-full animate-spin"></div>
+          <p className="text-xs text-slate-500 font-medium">Synchronizing your manager dashboard...</p>
+        </div>
+      </div>
+    );
+  }
+
   // --- Calculations for Top Stats Row ---
   const totalMembers = team.length;
   const submittedTodayCount = team.filter(m => m.todayUpdate).length;
@@ -387,8 +496,25 @@ function ManagerDashboard() {
     setTimeout(() => setShowToast(false), 3000);
   };
 
+  // Filter team members based on search term & filter selection
+  const filteredTeam = team.filter(member => {
+    const matchesSearch = member.name.toLowerCase().includes(searchTerm.toLowerCase());
+    
+    const hasUpdate = !!member.todayUpdate;
+    let matchesFilter = true;
+    if (filterType === 'submitted') {
+      matchesFilter = hasUpdate;
+    } else if (filterType === 'pending') {
+      matchesFilter = !hasUpdate;
+    } else if (filterType === 'blocker') {
+      matchesFilter = hasUpdate && member.todayUpdate.hasBlocker && !resolvedBlockerIds.has(member.todayUpdate.id);
+    }
+    
+    return matchesSearch && matchesFilter;
+  });
+
   // Sort team list: pending (no update today) shown FIRST
-  const sortedTeam = [...team].sort((a, b) => {
+  const sortedTeam = [...filteredTeam].sort((a, b) => {
     const aHasUpdate = !!a.todayUpdate;
     const bHasUpdate = !!b.todayUpdate;
     if (!aHasUpdate && bHasUpdate) return -1;
@@ -487,16 +613,19 @@ function ManagerDashboard() {
               </AnimatePresence>
             </div>
 
-            {/* Desktop User Circle & Badge */}
-            <div className="hidden sm:flex items-center space-x-2 border-l border-slate-800 pl-3">
+            {/* Desktop Profile Link */}
+            <Link 
+              to="/profile" 
+              className="hidden sm:flex items-center space-x-2 border-l border-slate-800 pl-3 hover:text-white transition-all group"
+            >
               <span className="text-[9px] font-bold bg-purple-500/15 text-purple-400 border border-purple-500/25 px-2 py-0.5 rounded-full uppercase tracking-wider">
                 Manager
               </span>
-              <div className="w-8 h-8 rounded-full bg-purple-500/10 border border-purple-500/30 flex items-center justify-center text-xs font-bold text-purple-400">
+              <div className="w-8 h-8 rounded-full bg-purple-500/10 border border-purple-500/30 group-hover:border-purple-500/40 flex items-center justify-center text-xs font-bold text-purple-405 group-hover:text-purple-400 transition-colors">
                 {manager.name ? manager.name.split(' ').map(n => n[0]).join('') : 'M'}
               </div>
-              <span className="text-xs font-semibold text-slate-355">{manager.name}</span>
-            </div>
+              <span className="text-xs font-semibold text-slate-300 group-hover:text-white transition-colors">{manager.name}</span>
+            </Link>
 
             <button
               onClick={handleLogout}
@@ -528,12 +657,12 @@ function ManagerDashboard() {
             className="md:hidden border-b border-slate-850 bg-[#0f172a] px-6 py-4 space-y-4 z-10 relative overflow-hidden"
           >
             <div className="flex items-center space-x-2 text-sm font-semibold text-slate-200 bg-slate-900/40 border border-slate-800 px-4 py-2.5 rounded-xl">
-              <span>Team Overview Overview</span>
+              <span>Team Overview</span>
             </div>
             
             {teamDetails && (
               <div className="flex items-center justify-between p-3 bg-purple-500/5 border border-purple-500/10 rounded-xl">
-                <span className="text-xs text-slate-400 font-semibold">Team Code</span>
+                <span className="text-xs text-slate-405 font-semibold">Team Code</span>
                 <button
                   onClick={() => handleCopyCode(teamDetails.inviteCode)}
                   className="px-3 py-1 bg-purple-500/10 hover:bg-purple-500/15 text-purple-400 border border-purple-500/20 text-xs font-bold rounded-lg transition-all"
@@ -544,13 +673,15 @@ function ManagerDashboard() {
             )}
 
             <div className="flex items-center justify-between pt-2">
-              <div className="flex items-center space-x-2">
+              <Link to="/profile" className="flex items-center space-x-2 text-slate-305 hover:text-white">
                 <div className="w-8 h-8 rounded-full bg-purple-500/10 border border-purple-500/30 flex items-center justify-center text-xs font-bold text-purple-400">
                   {manager.name ? manager.name.split(' ').map(n => n[0]).join('') : 'M'}
                 </div>
-                <span className="text-xs font-semibold text-slate-305">{manager.name}</span>
-                <span className="text-[9px] font-bold bg-purple-500/15 text-purple-400 border border-purple-500/25 px-2 py-0.5 rounded-full uppercase">MGR</span>
-              </div>
+                <div className="text-left">
+                  <span className="text-xs font-semibold">{manager.name}</span>
+                  <span className="block text-[9px] text-slate-550 font-bold uppercase tracking-wider">Settings</span>
+                </div>
+              </Link>
               <button
                 onClick={handleLogout}
                 className="flex items-center space-x-1.5 px-3 py-2 bg-slate-850 hover:bg-rose-500/10 hover:text-rose-400 border border-slate-800 text-xs font-bold rounded-lg text-slate-350 transition-all cursor-pointer"
@@ -904,6 +1035,33 @@ function ManagerDashboard() {
             <span className="text-xs font-semibold text-slate-550">{getFormattedDate()}</span>
           </div>
 
+          {/* Search & Filter Bar */}
+          <div className="flex flex-col sm:flex-row gap-4 items-center justify-between bg-slate-900/40 p-4 rounded-2xl border border-white/5 shadow-md">
+            <div className="relative w-full sm:max-w-xs">
+              <Search className="absolute left-3.5 top-3 h-4 w-4 text-slate-450" />
+              <input
+                type="text"
+                placeholder="Search team members..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="w-full bg-[#0a0f1d]/60 border border-slate-800/80 rounded-xl pl-10 pr-4 py-2.5 text-sm text-slate-105 placeholder-slate-550 focus:outline-none focus:border-purple-500/80 transition-all shadow-inner"
+              />
+            </div>
+            <div className="flex items-center space-x-2.5 w-full sm:w-auto justify-end">
+              <span className="text-xs text-slate-450 font-bold whitespace-nowrap uppercase tracking-wider text-[10px]">Filter updates:</span>
+              <select
+                value={filterType}
+                onChange={(e) => setFilterType(e.target.value)}
+                className="w-full sm:w-auto bg-[#0a0f1d]/60 border border-slate-800/80 rounded-xl px-3.5 py-2.5 text-xs font-bold text-slate-200 focus:outline-none focus:border-purple-500/80 transition-all shadow-inner cursor-pointer"
+              >
+                <option value="all">All Members</option>
+                <option value="submitted">Submitted Today</option>
+                <option value="pending">Pending Today</option>
+                <option value="blocker">Has Blockers</option>
+              </select>
+            </div>
+          </div>
+
           {/* Middle Layout Block */}
           <div className="grid grid-cols-1 lg:grid-cols-10 gap-8 items-start">
             
@@ -958,7 +1116,12 @@ function ManagerDashboard() {
                             {member.name.split(' ').map(n => n[0]).join('')}
                           </div>
                           <div>
-                            <h3 className="text-sm font-bold text-slate-205">{member.name}</h3>
+                            <h3 className="text-sm font-bold text-slate-205 flex items-center gap-1.5">
+                              <span>{member.name}</span>
+                              {member.managerNote && (
+                                <StickyNote className="w-3.5 h-3.5 text-yellow-500 animate-pulse shrink-0" title="Has private manager note" />
+                              )}
+                            </h3>
                             {hasUpdate && member.todayUpdate.summary ? (
                               <p className="text-[11px] text-slate-405 mt-0.5 italic max-w-[180px] sm:max-w-xs md:max-w-md line-clamp-1">
                                 <span className="text-purple-400 not-italic font-extrabold mr-1">✨ AI:</span>
@@ -980,7 +1143,10 @@ function ManagerDashboard() {
 
                         {/* Actions */}
                         <div className="flex items-center space-x-3">
-                          <span className={`text-[10px] font-bold px-2.5 py-1 rounded-full border uppercase tracking-wider ${sentimentPill}`}>
+                          <span 
+                            className={`text-[10px] font-bold px-2.5 py-1 rounded-full border uppercase tracking-wider ${sentimentPill}`}
+                            title={hasUpdate ? `Sentiment analyzed as ${member.todayUpdate.sentiment}` : 'No update submitted yet today'}
+                          >
                             {hasUpdate ? member.todayUpdate.sentiment : 'Pending'}
                           </span>
                           
@@ -1399,6 +1565,39 @@ function ManagerDashboard() {
                     </div>
                   )}
 
+                  {/* Private Manager Note Section */}
+                  <div className="bg-slate-950/25 border border-slate-900 p-5 rounded-2xl text-left relative">
+                    <div className="absolute top-4 right-4 text-[9px] text-amber-500 font-bold uppercase tracking-wider bg-amber-500/10 px-2 py-0.5 rounded-full border border-amber-500/20">
+                      Private Note (Manager Only)
+                    </div>
+                    <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3 flex items-center gap-1.5">
+                      <StickyNote className="w-4 h-4 text-amber-500" />
+                      <span>Private Note</span>
+                    </h4>
+                    <form onSubmit={handleSaveNote} className="space-y-3">
+                      <textarea
+                        value={managerNoteText}
+                        onChange={(e) => setManagerNoteText(e.target.value)}
+                        placeholder={`Write private notes about ${modalData.member.name} (only you can see this)...`}
+                        className="w-full h-20 bg-slate-950/50 hover:bg-slate-950/75 border border-slate-850 focus:border-amber-500/50 rounded-xl p-3 text-xs text-slate-200 placeholder-slate-550 outline-none resize-none transition-all leading-relaxed"
+                      />
+                      <button
+                        type="submit"
+                        disabled={savingNote}
+                        className="w-full py-2.5 bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-600 hover:to-orange-700 text-xs font-bold text-white rounded-xl transition-all shadow-md active:scale-95 disabled:opacity-50 disabled:pointer-events-none cursor-pointer flex items-center justify-center space-x-2"
+                      >
+                        {savingNote ? (
+                          <>
+                            <Activity className="w-3.5 h-3.5 animate-spin" />
+                            <span>Saving Note...</span>
+                          </>
+                        ) : (
+                          <span>Save Private Note</span>
+                        )}
+                      </button>
+                    </form>
+                  </div>
+
                   {/* Send Direct Feedback/Message Section */}
                   <div className="bg-slate-950/25 border border-slate-900 p-5 rounded-2xl text-left">
                     <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">Send Message / Direct Feedback</h4>
@@ -1446,13 +1645,16 @@ function ManagerDashboard() {
                               </span>
                               
                               {day.submitted && (
-                                <span className={`text-[9px] font-extrabold uppercase px-2 py-0.5 rounded-full border ${
-                                  day.sentiment === 'positive'
-                                    ? 'bg-green-500/10 text-green-400 border-green-500/20'
-                                    : day.sentiment === 'negative'
-                                    ? 'bg-rose-500/10 text-rose-400 border-rose-500/20'
-                                    : 'bg-yellow-500/10 text-yellow-400 border-yellow-500/20'
-                                }`}>
+                                <span 
+                                  className={`text-[9px] font-extrabold uppercase px-2 py-0.5 rounded-full border ${
+                                    day.sentiment === 'positive'
+                                      ? 'bg-green-500/10 text-green-400 border-green-500/20'
+                                      : day.sentiment === 'negative'
+                                      ? 'bg-rose-500/10 text-rose-400 border-rose-500/20'
+                                      : 'bg-yellow-500/10 text-yellow-400 border-yellow-500/20'
+                                  }`}
+                                  title={`AI analyzed sentiment: ${day.sentiment}`}
+                                >
                                   {day.sentiment}
                                 </span>
                               )}

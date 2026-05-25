@@ -35,6 +35,14 @@ const UserSchema = new mongoose.Schema({
     ref: 'Team',
     default: null
   },
+  reminderTime: {
+    type: String,
+    default: '09:00'
+  },
+  managerNote: {
+    type: String,
+    default: ''
+  },
   createdAt: {
     type: Date,
     default: Date.now

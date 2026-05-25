@@ -112,8 +112,41 @@ router.post('/login', async (req, res) => {
 // @access  Private
 router.get('/me', protect, async (req, res) => {
   try {
-    const user = await User.findById(req.user.id).select('-password');
+    const user = await User.findById(req.user.id).select('-password -managerNote');
     res.json({ success: true, user });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// @desc    Update user profile name & reminder time
+// @route   PUT /api/auth/profile
+// @access  Private
+router.put('/profile', protect, async (req, res) => {
+  try {
+    const { name, reminderTime } = req.body;
+    const user = await User.findById(req.user.id);
+
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+
+    if (name && name.trim()) {
+      user.name = name.trim();
+    }
+
+    if (reminderTime !== undefined) {
+      user.reminderTime = reminderTime;
+    }
+
+    await user.save();
+
+    const updatedUser = await User.findById(user._id).select('-password -managerNote');
+    
+    res.json({
+      success: true,
+      user: updatedUser
+    });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }

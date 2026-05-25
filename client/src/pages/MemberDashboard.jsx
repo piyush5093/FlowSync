@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
   Activity, 
@@ -46,6 +46,9 @@ function MemberDashboard() {
     history7Days: []
   });
   
+  // Leaderboard state
+  const [leaderboard, setLeaderboard] = useState([]);
+  
   // Manager direct feedback messages
   const [messages, setMessages] = useState([]);
 
@@ -58,6 +61,8 @@ function MemberDashboard() {
   const [toastMsg, setToastMsg] = useState('');
   const [expandedUpdateId, setExpandedUpdateId] = useState(null);
   const [aiInsight, setAiInsight] = useState(null);
+  const [isEditing, setIsEditing] = useState(false);
+  const [editText, setEditText] = useState('');
   
   // Custom navigation & layout states
   const [bellDropdownOpen, setBellDropdownOpen] = useState(false);
@@ -74,6 +79,12 @@ function MemberDashboard() {
           const profileRes = await fetch(`${API_BASE_URL}/api/auth/me`, {
             headers: { 'Authorization': `Bearer ${token}` }
           });
+          
+          if (profileRes.status === 401) {
+            handleLogout();
+            return;
+          }
+
           const profileData = await profileRes.json();
           if (profileRes.ok && profileData.success) {
             setUser(profileData.user);
@@ -84,6 +95,12 @@ function MemberDashboard() {
               const teamRes = await fetch(`${API_BASE_URL}/api/teams/my`, {
                 headers: { 'Authorization': `Bearer ${token}` }
               });
+              
+              if (teamRes.status === 401) {
+                handleLogout();
+                return;
+              }
+
               const teamData = await teamRes.json();
               if (teamRes.ok && teamData.success) {
                 setTeamDetails(teamData.data);
@@ -95,14 +112,14 @@ function MemberDashboard() {
               setLoading(false);
             }
           } else {
-            setLoading(false);
+            handleLogout();
           }
         } else {
-          setLoading(false);
+          handleLogout();
         }
       } catch (error) {
         console.error('Error loading member profile:', error);
-        setLoading(false);
+        handleLogout();
       }
     };
 
@@ -130,8 +147,13 @@ function MemberDashboard() {
       const response = await fetch(`${API_BASE_URL}/api/updates/my`, {
         headers: { 'Authorization': `Bearer ${token}` }
       });
-      const data = await response.json();
       
+      if (response.status === 401) {
+        handleLogout();
+        return;
+      }
+
+      const data = await response.json();
       if (response.ok) {
         setUpdates(data.data.updates || []);
         setStats(data.data.stats || {
@@ -146,10 +168,30 @@ function MemberDashboard() {
       const msgResponse = await fetch(`${API_BASE_URL}/api/updates/messages`, {
         headers: { 'Authorization': `Bearer ${token}` }
       });
+
+      if (msgResponse.status === 401) {
+        handleLogout();
+        return;
+      }
+
       const msgData = await msgResponse.json();
-      
       if (msgResponse.ok) {
         setMessages(msgData.data || []);
+      }
+
+      // Fetch leaderboard
+      const lbResponse = await fetch(`${API_BASE_URL}/api/updates/leaderboard`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+
+      if (lbResponse.status === 401) {
+        handleLogout();
+        return;
+      }
+
+      const lbData = await lbResponse.json();
+      if (lbResponse.ok && lbData.success) {
+        setLeaderboard(lbData.data || []);
       }
     } catch (error) {
       console.error('Error loading member data:', error);
@@ -362,6 +404,61 @@ function MemberDashboard() {
     }
   };
 
+  // Edit Today's Update
+  const handleEditUpdate = async (e) => {
+    e.preventDefault();
+    if (!editText.trim()) return;
+
+    // Stop mic if recording
+    if (isListening && recognitionRef.current) {
+      recognitionRef.current.stop();
+      setIsListening(false);
+    }
+
+    setSubmitting(true);
+    setAiInsight(null); // Clear previous insight
+    try {
+      const token = localStorage.getItem('token');
+      const response = await fetch(`${API_BASE_URL}/api/updates/today`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ updateText: editText })
+      });
+
+      const data = await response.json();
+
+      if (response.ok) {
+        setIsEditing(false);
+        setEditText('');
+        
+        // Capture AI Insight fields
+        setAiInsight({
+          sentiment: data.data.sentiment,
+          summary: data.data.summary,
+          hasBlocker: data.data.hasBlocker,
+          blockerText: data.data.blockerText,
+          encouragement: data.encouragement
+        });
+
+        setToastMsg('Update modified successfully! ✨');
+        setShowToast(true);
+        setTimeout(() => setShowToast(false), 3000);
+        // Refresh updates list & stats
+        fetchUserData();
+      } else {
+        alert(data.message || 'Failed to update today\'s post');
+      }
+    } catch (err) {
+      console.error('Edit error', err);
+      alert('Error connecting to backend services');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
   // Label Past Dates
   const formatDateLabel = (dateStr) => {
     const updateDate = new Date(dateStr);
@@ -388,10 +485,39 @@ function MemberDashboard() {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-[#0f172a] text-slate-100 flex flex-col items-center justify-center relative p-6 overflow-hidden">
+        {/* Background Soft Blobs */}
+        <div className="absolute top-0 left-0 w-full h-full overflow-hidden pointer-events-none z-0">
+          <div className="absolute top-[-10%] right-[-10%] w-[450px] h-[450px] rounded-full bg-purple-600/10 blur-[120px]"></div>
+          <div className="absolute bottom-[-10%] left-[-10%] w-[400px] h-[400px] rounded-full bg-blue-600/10 blur-[100px]"></div>
+        </div>
+        <div className="relative z-10 flex flex-col items-center space-y-6 animate-pulse">
+          <div className="w-16 h-16 rounded-2xl bg-gradient-to-tr from-blue-500 to-purple-600 flex items-center justify-center shadow-2xl">
+            <Activity className="w-8 h-8 text-white" />
+          </div>
+          <h2 className="text-xl font-extrabold bg-gradient-to-r from-blue-400 to-purple-500 bg-clip-text text-transparent">
+            FlowSync
+          </h2>
+          <div className="w-8 h-8 border-4 border-purple-500/30 border-t-purple-500 rounded-full animate-spin"></div>
+          <p className="text-xs text-slate-500 font-medium">Synchronizing your dashboard...</p>
+        </div>
+      </div>
+    );
+  }
+
   // Check if today has a blocker reported
   const todayHasBlocker = updates.length > 0 && 
     new Date(updates[0].date).toDateString() === new Date().toDateString() &&
     updates[0].hasBlocker;
+
+  // Find today's update
+  const todayUpdate = updates.find(item => {
+    const updateDate = new Date(item.date);
+    const today = new Date();
+    return updateDate.toDateString() === today.toDateString();
+  });
 
   return (
     <div className="min-h-screen bg-[#0f172a] text-slate-100 font-sans flex flex-col relative overflow-x-hidden">
@@ -506,13 +632,19 @@ function MemberDashboard() {
               </div>
             )}
 
-            {/* Desktop Logout & Avatar */}
-            <div className="hidden sm:flex items-center space-x-2 border-l border-slate-800 pl-3">
-              <div className="w-8 h-8 rounded-full bg-blue-500/10 border border-blue-500/30 flex items-center justify-center text-xs font-bold text-blue-400">
+            {/* Desktop Profile Link */}
+            <Link 
+              to="/profile" 
+              className="hidden sm:flex items-center space-x-2 border-l border-slate-800 pl-3 hover:text-white transition-all group"
+            >
+              <div className="w-8 h-8 rounded-full bg-blue-500/10 border border-blue-500/30 group-hover:border-purple-500/40 flex items-center justify-center text-xs font-bold text-blue-405 group-hover:text-purple-400 transition-colors">
                 {user.name ? user.name.split(' ').map(n => n[0]).join('') : 'U'}
               </div>
-              <span className="text-xs font-semibold text-slate-300">{user.name}</span>
-            </div>
+              <div className="text-left">
+                <span className="text-xs font-semibold text-slate-300 group-hover:text-white transition-colors">{user.name}</span>
+                <span className="block text-[9px] text-slate-500 font-bold uppercase tracking-wider">Settings</span>
+              </div>
+            </Link>
             
             <button
               onClick={handleLogout}
@@ -559,12 +691,15 @@ function MemberDashboard() {
             )}
 
             <div className="flex items-center justify-between pt-2">
-              <div className="flex items-center space-x-2">
+              <Link to="/profile" className="flex items-center space-x-2 text-slate-300 hover:text-white">
                 <div className="w-8 h-8 rounded-full bg-blue-500/10 border border-blue-500/30 flex items-center justify-center text-xs font-bold text-blue-400">
                   {user.name ? user.name.split(' ').map(n => n[0]).join('') : 'U'}
                 </div>
-                <span className="text-xs font-semibold text-slate-305">{user.name}</span>
-              </div>
+                <div className="text-left">
+                  <span className="text-xs font-semibold">{user.name}</span>
+                  <span className="block text-[9px] text-slate-550 font-bold uppercase tracking-wider">Settings</span>
+                </div>
+              </Link>
               <button
                 onClick={handleLogout}
                 className="flex items-center space-x-1.5 px-3 py-2 bg-slate-850 hover:bg-rose-500/10 hover:text-rose-400 border border-slate-800 text-xs font-bold rounded-lg text-slate-350 transition-all cursor-pointer"
@@ -578,42 +713,7 @@ function MemberDashboard() {
       </AnimatePresence>
 
       {/* Main Layout Area */}
-      {loading ? (
-        /* Loading Skeleton Screen */
-        <main className="flex-1 relative z-10 max-w-7xl w-full mx-auto px-6 py-8 md:py-12 grid grid-cols-1 lg:grid-cols-10 gap-8">
-          {/* Left Column Skeleton */}
-          <div className="lg:col-span-6 space-y-8">
-            <div className="glass-panel rounded-3xl p-6 md:p-8 bg-[#131b2e]/10 border border-slate-850/60 h-80 space-y-6 animate-pulse">
-              <div className="h-6 bg-slate-805/80 rounded-lg w-1/3"></div>
-              <div className="h-4 bg-slate-805/50 rounded-lg w-1/4"></div>
-              <div className="h-32 bg-slate-900/60 rounded-2xl border border-slate-850/40"></div>
-              <div className="h-10 bg-slate-805/60 rounded-xl w-full"></div>
-            </div>
-            <div className="glass-panel rounded-3xl p-6 md:p-8 bg-[#131b2e]/10 border border-slate-850/60 h-80 space-y-4 animate-pulse">
-              <div className="h-6 bg-slate-805/80 rounded-lg w-1/4"></div>
-              <div className="space-y-3">
-                <div className="h-16 bg-slate-900/60 rounded-2xl"></div>
-                <div className="h-16 bg-slate-900/60 rounded-2xl"></div>
-              </div>
-            </div>
-          </div>
-          {/* Right Column Skeleton */}
-          <div className="lg:col-span-4 space-y-8">
-            <div className="glass-panel rounded-3xl p-6 md:p-8 bg-[#131b2e]/10 border border-slate-850/60 h-64 space-y-4 animate-pulse">
-              <div className="h-5 bg-slate-805/80 rounded w-1/2"></div>
-              <div className="h-16 bg-slate-805/60 rounded-2xl"></div>
-              <div className="h-20 bg-slate-805/60 rounded-2xl"></div>
-            </div>
-            <div className="glass-panel rounded-3xl p-6 md:p-8 bg-[#131b2e]/10 border border-slate-850/60 h-80 space-y-4 animate-pulse">
-              <div className="h-5 bg-slate-805/80 rounded w-1/2"></div>
-              <div className="space-y-3">
-                <div className="h-12 bg-slate-805/60 rounded-xl"></div>
-                <div className="h-12 bg-slate-805/60 rounded-xl"></div>
-              </div>
-            </div>
-          </div>
-        </main>
-      ) : !teamDetails ? (
+      {!teamDetails ? (
         /* Onboarding Screen */
         <main className="flex-1 relative z-10 max-w-7xl w-full mx-auto px-6 py-12 md:py-24 flex items-center justify-center">
           <motion.div
@@ -699,13 +799,16 @@ function MemberDashboard() {
                     
                     <div className="flex items-center space-x-2">
                       <span className="text-slate-550 font-bold uppercase text-[9px]">Sentiment:</span>
-                      <span className={`text-[10px] font-extrabold px-2.5 py-0.5 rounded-full border uppercase tracking-wider ${
-                        aiInsight.sentiment === 'positive'
-                          ? 'bg-green-500/15 text-green-400 border-green-500/25 shadow-sm shadow-green-500/10'
-                          : aiInsight.sentiment === 'negative'
-                          ? 'bg-rose-500/15 text-rose-400 border-rose-500/25 shadow-sm shadow-rose-500/10'
-                          : 'bg-yellow-500/15 text-yellow-405 border-yellow-500/25 shadow-sm shadow-yellow-500/10'
-                      }`}>
+                      <span 
+                        className={`text-[10px] font-extrabold px-2.5 py-0.5 rounded-full border uppercase tracking-wider ${
+                          aiInsight.sentiment === 'positive'
+                            ? 'bg-green-500/15 text-green-400 border-green-500/25 shadow-sm shadow-green-500/10'
+                            : aiInsight.sentiment === 'negative'
+                            ? 'bg-rose-500/15 text-rose-400 border-rose-500/25 shadow-sm shadow-rose-500/10'
+                            : 'bg-yellow-500/15 text-yellow-405 border-yellow-500/25 shadow-sm shadow-yellow-500/10'
+                        }`}
+                        title={`AI analyzed sentiment: ${aiInsight.sentiment}`}
+                      >
                         {aiInsight.sentiment}
                       </span>
                     </div>
@@ -737,81 +840,188 @@ function MemberDashboard() {
               <div className="absolute top-[-1px] left-8 w-24 h-[2px] bg-gradient-to-r from-blue-500 to-purple-500"></div>
               
               <div className="mb-6">
-                <h2 className="text-xl font-extrabold text-white tracking-tight">What's your update today?</h2>
+                <h2 className="text-xl font-extrabold text-white tracking-tight">
+                  {todayUpdate ? "Today's Update Status" : "What's your update today?"}
+                </h2>
                 <p className="text-xs font-semibold text-slate-500 mt-1">{getFormattedDate()}</p>
               </div>
 
-              <form onSubmit={handleSubmitUpdate} className="space-y-4">
-                
-                {/* Textarea container */}
-                <div className="relative group">
-                  <textarea
-                    value={updateText}
-                    onChange={(e) => setUpdateText(e.target.value)}
-                    placeholder="Share what you worked on, what's next, and any blockers you're facing..."
-                    className="w-full h-44 bg-slate-950/40 hover:bg-slate-950/60 border border-slate-800/80 focus:border-purple-500/80 focus:ring-4 focus:ring-purple-500/10 rounded-2xl p-4 text-sm text-slate-200 placeholder-slate-500 outline-none resize-none transition-all duration-200 leading-relaxed"
-                  />
-                  
-                  {/* Floating listening status */}
-                  {isListening && (
-                    <div className="absolute bottom-4 right-4 flex items-center space-x-2 bg-rose-500/10 border border-rose-500/30 px-3 py-1.5 rounded-full text-[10px] font-bold text-rose-450 animate-pulse">
-                      <span className="w-1.5 h-1.5 rounded-full bg-rose-500 animate-ping"></span>
-                      <span>Listening...</span>
+              {todayUpdate ? (
+                isEditing ? (
+                  /* Edit Form */
+                  <form onSubmit={handleEditUpdate} className="space-y-4">
+                    <div className="relative group">
+                      <textarea
+                        value={editText}
+                        onChange={(e) => {
+                          if (e.target.value.length <= 500) {
+                            setEditText(e.target.value);
+                          }
+                        }}
+                        placeholder="Edit today's update..."
+                        className="w-full h-44 bg-slate-950/40 hover:bg-slate-950/60 border border-slate-800/80 focus:border-purple-500/80 focus:ring-4 focus:ring-purple-500/10 rounded-2xl p-4 text-sm text-slate-200 placeholder-slate-500 outline-none resize-none transition-all duration-200 leading-relaxed"
+                      />
                     </div>
-                  )}
-                </div>
 
-                {/* Input Chips row */}
-                <div className="flex flex-wrap gap-2 items-center">
-                  <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mr-1">Quick Add:</span>
-                  {[
-                    { label: '✅ Completed a task', prefix: '✅ Completed a task:' },
-                    { label: '🚧 Facing a blocker', prefix: '🚧 Facing a blocker:' },
-                    { label: '📋 Planning for tomorrow', prefix: '📋 Planning for tomorrow:' }
-                  ].map((chip, idx) => (
+                    <div className="flex items-center justify-between text-xs mt-1 px-1">
+                      <div className="flex items-center space-x-1.5">
+                        {editText.length < 50 ? (
+                          <span className="text-amber-500 flex items-center gap-1 font-semibold text-[11px]">
+                            <AlertCircle className="w-3.5 h-3.5" />
+                            Min 50 characters required ({editText.length}/50)
+                          </span>
+                        ) : (
+                          <span className="text-emerald-500 flex items-center gap-1 font-semibold text-[11px]">
+                            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />
+                            Ready to save!
+                          </span>
+                        )}
+                      </div>
+                      <span className={`font-mono text-[11px] ${editText.length >= 500 ? 'text-rose-500 font-bold' : 'text-slate-500'}`}>
+                        {editText.length} / 500
+                      </span>
+                    </div>
+
+                    <div className="flex items-center space-x-3 pt-2">
+                      <button
+                        type="submit"
+                        disabled={submitting || editText.length < 50}
+                        className="flex-1 relative group overflow-hidden rounded-xl py-3.5 font-bold text-white transition-all duration-300 shadow-lg shadow-purple-500/10 hover:shadow-purple-500/25 active:scale-95 disabled:opacity-50 disabled:pointer-events-none cursor-pointer"
+                      >
+                        <span className="absolute inset-0 bg-gradient-to-r from-blue-500 to-purple-600"></span>
+                        <span className="relative flex items-center justify-center gap-2 text-sm">
+                          Save Changes
+                        </span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setIsEditing(false);
+                          setEditText('');
+                        }}
+                        className="px-5 py-3.5 bg-slate-900/50 hover:bg-slate-800/80 border border-slate-800 text-slate-300 text-sm font-bold rounded-xl transition-all cursor-pointer"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </form>
+                ) : (
+                  /* Submitted Status Display */
+                  <div className="space-y-6">
+                    <div className="bg-emerald-500/10 border border-emerald-500/20 p-4 rounded-2xl flex items-center space-x-3">
+                      <CheckCircle2 className="w-6 h-6 text-emerald-500 shrink-0" />
+                      <div>
+                        <h4 className="text-sm font-bold text-emerald-400">✅ You already submitted today's update!</h4>
+                        {todayUpdate.lastEditedAt && (
+                          <p className="text-[10px] text-slate-500 mt-0.5">
+                            Last edited at {new Date(todayUpdate.lastEditedAt).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="bg-slate-950/40 border border-slate-850/60 rounded-2xl p-4">
+                      <p className="text-xs text-slate-400 leading-relaxed whitespace-pre-line">{todayUpdate.updateText}</p>
+                    </div>
+
                     <button
-                      key={idx}
                       type="button"
-                      onClick={() => handleChipClick(chip.prefix)}
-                      className="text-xs px-3 py-1.5 bg-slate-900/50 hover:bg-slate-800/80 border border-slate-800 hover:border-slate-700 text-slate-300 rounded-full transition-all cursor-pointer"
+                      onClick={() => {
+                        setIsEditing(true);
+                        setEditText(todayUpdate.updateText);
+                      }}
+                      className="w-full py-3.5 bg-slate-800 hover:bg-slate-700 text-white font-bold rounded-xl text-sm border border-slate-700 transition-all flex items-center justify-center space-x-2 cursor-pointer active:scale-98"
                     >
-                      {chip.label}
+                      <span>Edit Today's Update</span>
                     </button>
-                  ))}
-                </div>
+                  </div>
+                )
+              ) : (
+                /* Submit Form (Standard) */
+                <form onSubmit={handleSubmitUpdate} className="space-y-4">
+                  <div className="relative group">
+                    <textarea
+                      value={updateText}
+                      onChange={(e) => {
+                        if (e.target.value.length <= 500) {
+                          setUpdateText(e.target.value);
+                        }
+                      }}
+                      placeholder="Share what you worked on, what's next, and any blockers you're facing..."
+                      className="w-full h-44 bg-slate-950/40 hover:bg-slate-950/60 border border-slate-800/80 focus:border-purple-500/80 focus:ring-4 focus:ring-purple-500/10 rounded-2xl p-4 text-sm text-slate-200 placeholder-slate-500 outline-none resize-none transition-all duration-200 leading-relaxed"
+                    />
 
-                {/* Buttons Row */}
-                <div className="flex items-center space-x-3 pt-2">
-                  
-                  {/* Submit Button */}
-                  <button
-                    type="submit"
-                    disabled={submitting || !updateText.trim()}
-                    className="flex-1 relative group overflow-hidden rounded-xl py-3.5 font-bold text-white transition-all duration-300 shadow-lg shadow-purple-500/10 hover:shadow-purple-500/25 active:scale-95 disabled:opacity-50 disabled:pointer-events-none cursor-pointer"
-                  >
-                    <span className="absolute inset-0 bg-gradient-to-r from-blue-500 to-purple-600"></span>
-                    <span className="relative flex items-center justify-center gap-2 text-sm">
-                      {submitting ? 'Analyzing Update...' : 'Submit Update'}
+                    {isListening && (
+                      <div className="absolute bottom-4 right-4 flex items-center space-x-2 bg-rose-500/10 border border-rose-500/30 px-3 py-1.5 rounded-full text-[10px] font-bold text-rose-455 animate-pulse">
+                        <span className="w-1.5 h-1.5 rounded-full bg-rose-500 animate-ping"></span>
+                        <span>Listening...</span>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="flex items-center justify-between text-xs mt-1 px-1">
+                    <div className="flex items-center space-x-1.5">
+                      {updateText.length < 50 ? (
+                        <span className="text-amber-500 flex items-center gap-1 font-semibold text-[11px]">
+                          <AlertCircle className="w-3.5 h-3.5" />
+                          Min 50 characters required ({updateText.length}/50)
+                        </span>
+                      ) : (
+                        <span className="text-emerald-500 flex items-center gap-1 font-semibold text-[11px]">
+                          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-505" />
+                          Ready to submit!
+                        </span>
+                      )}
+                    </div>
+                    <span className={`font-mono text-[11px] ${updateText.length >= 500 ? 'text-rose-500 font-bold' : 'text-slate-500'}`}>
+                      {updateText.length} / 500
                     </span>
-                  </button>
+                  </div>
 
-                  {/* Mic Button */}
-                  <button
-                    type="button"
-                    onClick={toggleListening}
-                    className={`p-3.5 rounded-xl border transition-all duration-300 cursor-pointer flex items-center justify-center ${
-                      isListening
-                        ? 'bg-rose-600/20 text-rose-455 border-rose-505 animate-pulse shadow-lg shadow-rose-500/20'
-                        : 'bg-slate-900/50 text-slate-400 border-slate-800 hover:bg-slate-800/50 hover:border-slate-700'
-                    }`}
-                  >
-                    {isListening ? <MicOff className="w-5 h-5" /> : <Mic className="w-5 h-5" />}
-                  </button>
+                  <div className="flex flex-wrap gap-2 items-center">
+                    <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mr-1">Quick Add:</span>
+                    {[
+                      { label: '✅ Completed a task', prefix: '✅ Completed a task:' },
+                      { label: '🚧 Facing a blocker', prefix: '🚧 Facing a blocker:' },
+                      { label: '📋 Planning for tomorrow', prefix: '📋 Planning for tomorrow:' }
+                    ].map((chip, idx) => (
+                      <button
+                        key={idx}
+                        type="button"
+                        onClick={() => handleChipClick(chip.prefix)}
+                        className="text-xs px-3 py-1.5 bg-slate-900/50 hover:bg-slate-800/80 border border-slate-800 hover:border-slate-700 text-slate-300 rounded-full transition-all cursor-pointer"
+                      >
+                        {chip.label}
+                      </button>
+                    ))}
+                  </div>
 
-                </div>
+                  <div className="flex items-center space-x-3 pt-2">
+                    <button
+                      type="submit"
+                      disabled={submitting || updateText.length < 50}
+                      className="flex-1 relative group overflow-hidden rounded-xl py-3.5 font-bold text-white transition-all duration-300 shadow-lg shadow-purple-500/10 hover:shadow-purple-500/25 active:scale-95 disabled:opacity-50 disabled:pointer-events-none cursor-pointer"
+                    >
+                      <span className="absolute inset-0 bg-gradient-to-r from-blue-500 to-purple-600"></span>
+                      <span className="relative flex items-center justify-center gap-2 text-sm">
+                        Submit Update
+                      </span>
+                    </button>
 
-              </form>
-
+                    <button
+                      type="button"
+                      onClick={toggleListening}
+                      className={`p-3.5 rounded-xl border transition-all duration-300 cursor-pointer flex items-center justify-center ${
+                        isListening
+                          ? 'bg-rose-600/20 text-rose-455 border-rose-505 animate-pulse shadow-lg shadow-rose-500/20'
+                          : 'bg-slate-900/50 text-slate-400 border-slate-800 hover:bg-slate-800/50 hover:border-slate-700'
+                      }`}
+                    >
+                      {isListening ? <MicOff className="w-5 h-5" /> : <Mic className="w-5 h-5" />}
+                    </button>
+                  </div>
+                </form>
+              )}
             </div>
 
             {/* Card 2: Your Past Updates */}
@@ -821,10 +1031,10 @@ function MemberDashboard() {
               {updates.length === 0 ? (
                 /* Empty State */
                 <div className="py-12 px-4 flex flex-col items-center justify-center text-center">
-                  <div className="w-14 h-14 rounded-2xl bg-slate-900/50 border border-slate-800/50 flex items-center justify-center text-slate-650 mb-4">
+                  <div className="w-14 h-14 rounded-2xl bg-slate-900/50 border border-slate-800/50 flex items-center justify-center text-slate-655 mb-4">
                     <FileText className="w-7 h-7" />
                   </div>
-                  <h3 className="text-sm font-bold text-slate-300">No updates yet</h3>
+                  <h3 className="text-sm font-bold text-slate-305">No updates yet</h3>
                   <p className="text-xs text-slate-500 max-w-xs mt-1 leading-relaxed">
                     Submit your first daily 60-second update above to start tracking performance streaks and stats.
                   </p>
@@ -854,7 +1064,10 @@ function MemberDashboard() {
                           <div className="flex items-center space-x-3">
                             <span className="text-sm">📋</span>
                             <span className="text-sm font-bold text-slate-200">{formatDateLabel(item.date)}</span>
-                            <span className={`text-[9px] font-bold px-2 py-0.5 rounded-full border uppercase tracking-wider ${sentimentBadge}`}>
+                            <span 
+                              className={`text-[9px] font-bold px-2 py-0.5 rounded-full border uppercase tracking-wider ${sentimentBadge}`}
+                              title={`AI analyzed sentiment: ${item.sentiment || 'neutral'}`}
+                            >
                               {item.sentiment || 'neutral'}
                             </span>
                           </div>
@@ -947,7 +1160,7 @@ function MemberDashboard() {
                 {/* Stat 1: Weekly Total */}
                 <div className="bg-slate-950/20 border border-slate-900 rounded-2xl p-4 flex items-center justify-between">
                   <div className="flex items-center space-x-3">
-                    <div className="w-8 h-8 rounded-lg bg-blue-500/10 flex items-center justify-center text-blue-400 border border-blue-500/20">
+                    <div className="w-8 h-8 rounded-lg bg-blue-500/10 flex items-center justify-center text-blue-405 border border-blue-500/20">
                       <Calendar className="w-4 h-4" />
                     </div>
                     <div>
@@ -1000,6 +1213,54 @@ function MemberDashboard() {
 
             </div>
 
+            {/* Weekly Leaderboard Card */}
+            <div className="glass-panel rounded-3xl p-6 md:p-8 bg-[#131b2e]/30 border border-white/5 shadow-xl relative">
+              <h2 className="text-sm font-bold text-slate-400 uppercase tracking-wider mb-6">Weekly Leaderboard</h2>
+              <div className="space-y-3">
+                {leaderboard.length === 0 ? (
+                  <p className="text-xs text-slate-500 font-medium">No leaderboard data available.</p>
+                ) : (
+                  leaderboard.map((member, index) => {
+                    const isCurrentUser = member.id === user._id;
+                    return (
+                      <div 
+                        key={member.id} 
+                        className={`flex items-center justify-between p-3 rounded-2xl border transition-all ${
+                          isCurrentUser 
+                            ? 'bg-purple-500/10 border-purple-500/30 text-purple-200 shadow-lg shadow-purple-500/5' 
+                            : 'bg-slate-950/20 border-slate-900/60 text-slate-350 hover:bg-slate-900/30'
+                        }`}
+                      >
+                        <div className="flex items-center space-x-3">
+                          <span className={`w-6 h-6 flex items-center justify-center rounded-lg text-xs font-bold ${
+                            index === 0 
+                              ? 'bg-amber-500/25 text-amber-400 border border-amber-500/30' 
+                              : index === 1 
+                              ? 'bg-slate-300/20 text-slate-300 border border-slate-400/20' 
+                              : index === 2 
+                              ? 'bg-amber-700/20 text-amber-600 border border-amber-700/20' 
+                              : 'bg-slate-800 text-slate-400'
+                          }`}>
+                            {index + 1}
+                          </span>
+                          <span className="text-xs font-bold truncate max-w-[120px]">{member.name}</span>
+                          {isCurrentUser && (
+                            <span className="text-[9px] bg-purple-500/20 text-purple-400 border border-purple-500/35 px-1.5 py-0.5 rounded-full font-bold uppercase tracking-wider">
+                              You
+                            </span>
+                          )}
+                        </div>
+                        <div className="flex items-center space-x-1.5">
+                          <span className="text-xs font-extrabold text-white">{member.count}</span>
+                          <span className="text-[10px] text-slate-500">updates</span>
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            </div>
+
             {/* Card 5: My Trend Section (Mood History) */}
             <div className="glass-panel rounded-3xl p-6 md:p-8 bg-[#131b2e]/30 border border-white/5 shadow-xl relative">
               <h2 className="text-sm font-bold text-slate-400 uppercase tracking-wider mb-6">My Trend</h2>
@@ -1032,7 +1293,7 @@ function MemberDashboard() {
                     <div className="text-3xl shrink-0">
                       {updates.slice(0, 3).some(u => u.sentiment === 'negative') ? '💪' : '✨'}
                     </div>
-                    <p className="text-xs font-semibold leading-relaxed text-slate-300">
+                    <p className="text-xs font-semibold leading-relaxed text-slate-305">
                       {updates.slice(0, 3).some(u => u.sentiment === 'negative') 
                         ? "Looks like a tough week, hang in there! Reach out if you need support." 
                         : "You're doing great! Keep up the excellent momentum!"}
@@ -1063,7 +1324,7 @@ function MemberDashboard() {
                           {new Date(msg.createdAt).toLocaleDateString('en-US', { day: 'numeric', month: 'short' })}
                         </span>
                       </div>
-                      <p className="text-xs text-slate-300 leading-relaxed">
+                      <p className="text-xs text-slate-305 leading-relaxed">
                         {msg.messageText}
                       </p>
                       <p className="text-[9px] text-slate-500 font-semibold text-right">

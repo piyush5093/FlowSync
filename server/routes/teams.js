@@ -51,8 +51,7 @@ router.post('/create', protect, authorize('manager'), async (req, res) => {
     });
 
     // Update manager's teamId
-    req.user.teamId = team._id;
-    await req.user.save();
+    await User.findByIdAndUpdate(req.user.id, { teamId: team._id });
 
     res.status(201).json({
       success: true,
@@ -95,8 +94,7 @@ router.post('/join', protect, authorize('member'), async (req, res) => {
     }
 
     // Update member's teamId field
-    req.user.teamId = team._id;
-    await req.user.save();
+    await User.findByIdAndUpdate(req.user.id, { teamId: team._id });
 
     res.json({
       success: true,

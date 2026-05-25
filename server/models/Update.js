@@ -6,6 +6,11 @@ const UpdateSchema = new mongoose.Schema({
     ref: 'User',
     required: true
   },
+  teamId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Team',
+    default: null
+  },
   updateText: {
     type: String,
     required: [true, 'Please add update text']

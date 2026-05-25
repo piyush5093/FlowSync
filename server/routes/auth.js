@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
+const { protect } = require('../middleware/authMiddleware');
 
 // Helper to generate JWT Token
 const generateToken = (id) => {
@@ -54,7 +55,8 @@ router.post('/signup', async (req, res) => {
           id: user._id,
           name: user.name,
           email: user.email,
-          role: user.role
+          role: user.role,
+          teamId: user.teamId
         }
       });
     } else {
@@ -96,9 +98,22 @@ router.post('/login', async (req, res) => {
         id: user._id,
         name: user.name,
         email: user.email,
-        role: user.role
+        role: user.role,
+        teamId: user.teamId
       }
     });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// @desc    Get current logged in user
+// @route   GET /api/auth/me
+// @access  Private
+router.get('/me', protect, async (req, res) => {
+  try {
+    const user = await User.findById(req.user.id).select('-password');
+    res.json({ success: true, user });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }

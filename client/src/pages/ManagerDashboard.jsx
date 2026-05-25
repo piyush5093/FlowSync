@@ -20,7 +20,8 @@ import {
   Bell,
   ArrowUp,
   Menu,
-  Award
+  Award,
+  ArrowRight
 } from 'lucide-react';
 import { 
   BarChart, 
@@ -40,6 +41,13 @@ function ManagerDashboard() {
   // Session details
   const [manager, setManager] = useState({ name: 'Manager' });
   
+  // Team details and onboarding states
+  const [teamDetails, setTeamDetails] = useState(null);
+  const [onboardingStep, setOnboardingStep] = useState('create'); // 'create', 'success'
+  const [newTeamName, setNewTeamName] = useState('');
+  const [creatingTeam, setCreatingTeam] = useState(false);
+  const [copiedCode, setCopiedCode] = useState(false);
+
   // Dashboard lists and stats
   const [team, setTeam] = useState([]);
   const [weeklyCounts, setWeeklyCounts] = useState([]);
@@ -76,11 +84,33 @@ function ManagerDashboard() {
 
   // Load profile and data
   useEffect(() => {
-    const userString = localStorage.getItem('user');
-    if (userString) {
-      setManager(JSON.parse(userString));
-    }
-    fetchDashboardData();
+    const fetchProfileAndData = async () => {
+      try {
+        const token = localStorage.getItem('token');
+        if (token) {
+          // Fetch current profile with latest teamId
+          const profileRes = await fetch(`${API_BASE_URL}/api/auth/me`, {
+            headers: { 'Authorization': `Bearer ${token}` }
+          });
+          const profileData = await profileRes.json();
+          if (profileRes.ok && profileData.success) {
+            setManager(profileData.user);
+            localStorage.setItem('user', JSON.stringify(profileData.user));
+          }
+        }
+      } catch (err) {
+        console.error('Error fetching manager profile:', err);
+      }
+      
+      const userString = localStorage.getItem('user');
+      if (userString) {
+        setManager(JSON.parse(userString));
+      }
+      
+      fetchDashboardData();
+    };
+
+    fetchProfileAndData();
   }, []);
 
   // Scroll to top button visibility check
@@ -100,21 +130,33 @@ function ManagerDashboard() {
     try {
       const token = localStorage.getItem('token');
       
-      // Fetch Team members
-      const teamRes = await fetch(`${API_BASE_URL}/api/manager/team`, {
+      // 1. Fetch team details
+      const detailsRes = await fetch(`${API_BASE_URL}/api/teams/my`, {
         headers: { 'Authorization': `Bearer ${token}` }
       });
-      const teamData = await teamRes.json();
+      const detailsData = await detailsRes.json();
 
-      // Fetch weekly counts
-      const weeklyRes = await fetch(`${API_BASE_URL}/api/manager/updates/weekly`, {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      const weeklyData = await weeklyRes.json();
+      if (detailsRes.ok && detailsData.success && detailsData.data) {
+        setTeamDetails(detailsData.data);
+        
+        // 2. Fetch Team members
+        const teamRes = await fetch(`${API_BASE_URL}/api/manager/team`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        const teamData = await teamRes.json();
 
-      if (teamRes.ok && weeklyRes.ok) {
-        setTeam(teamData.data);
-        setWeeklyCounts(weeklyData.data);
+        // 3. Fetch weekly counts
+        const weeklyRes = await fetch(`${API_BASE_URL}/api/manager/updates/weekly`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        const weeklyData = await weeklyRes.json();
+
+        if (teamRes.ok && weeklyRes.ok) {
+          setTeam(teamData.data || []);
+          setWeeklyCounts(weeklyData.data || []);
+        }
+      } else {
+        setTeamDetails(null);
       }
     } catch (error) {
       console.error('Error loading manager dashboard:', error);
@@ -122,6 +164,54 @@ function ManagerDashboard() {
       // Short delay to show off beautiful skeleton loadings
       setTimeout(() => setLoading(false), 800);
     }
+  };
+
+  const handleCreateTeam = async (e) => {
+    e.preventDefault();
+    if (!newTeamName.trim()) return;
+    
+    setCreatingTeam(true);
+    try {
+      const token = localStorage.getItem('token');
+      const response = await fetch(`${API_BASE_URL}/api/teams/create`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ teamName: newTeamName })
+      });
+      const data = await response.json();
+      
+      if (response.ok && data.success) {
+        setTeamDetails(data.data);
+        setOnboardingStep('success');
+        
+        // Update local state and storage
+        const updatedManager = { ...manager, teamId: data.data._id };
+        setManager(updatedManager);
+        localStorage.setItem('user', JSON.stringify(updatedManager));
+        
+        // Fetch dashboard data
+        fetchDashboardData();
+      } else {
+        setToastMsg(data.message || 'Failed to create team');
+        setShowToast(true);
+      }
+    } catch (err) {
+      console.error(err);
+      setToastMsg('Error connecting to backend services');
+      setShowToast(true);
+    } finally {
+      setCreatingTeam(false);
+    }
+  };
+
+  const handleCopyCode = (code) => {
+    if (!code) return;
+    navigator.clipboard.writeText(code);
+    setCopiedCode(true);
+    setTimeout(() => setCopiedCode(false), 2000);
   };
 
   // Generate today's AI Summary
@@ -337,6 +427,19 @@ function ManagerDashboard() {
           {/* Right Section User Circle, Notification Bell & Logout */}
           <div className="flex items-center space-x-3">
             
+            {/* Team Invite Code Chip in Navbar */}
+            {teamDetails && (
+              <button
+                onClick={() => handleCopyCode(teamDetails.inviteCode)}
+                className="hidden xs:flex items-center space-x-1.5 px-3.5 py-1.5 bg-purple-500/10 hover:bg-purple-500/15 border border-purple-500/25 text-purple-400 hover:text-purple-300 text-xs font-bold rounded-full transition-all cursor-pointer shadow-inner mr-2"
+              >
+                <span>Team Code: {teamDetails.inviteCode}</span>
+                <span className="text-[10px] opacity-70 ml-1">
+                  {copiedCode ? 'Copied! ✅' : '📋'}
+                </span>
+              </button>
+            )}
+            
             {/* Notification Bell */}
             <div className="relative">
               <button
@@ -427,6 +530,19 @@ function ManagerDashboard() {
             <div className="flex items-center space-x-2 text-sm font-semibold text-slate-200 bg-slate-900/40 border border-slate-800 px-4 py-2.5 rounded-xl">
               <span>Team Overview Overview</span>
             </div>
+            
+            {teamDetails && (
+              <div className="flex items-center justify-between p-3 bg-purple-500/5 border border-purple-500/10 rounded-xl">
+                <span className="text-xs text-slate-400 font-semibold">Team Code</span>
+                <button
+                  onClick={() => handleCopyCode(teamDetails.inviteCode)}
+                  className="px-3 py-1 bg-purple-500/10 hover:bg-purple-500/15 text-purple-400 border border-purple-500/20 text-xs font-bold rounded-lg transition-all"
+                >
+                  {teamDetails.inviteCode} {copiedCode ? 'Copied! ✅' : '📋'}
+                </button>
+              </div>
+            )}
+
             <div className="flex items-center justify-between pt-2">
               <div className="flex items-center space-x-2">
                 <div className="w-8 h-8 rounded-full bg-purple-500/10 border border-purple-500/30 flex items-center justify-center text-xs font-bold text-purple-400">
@@ -497,6 +613,102 @@ function ManagerDashboard() {
               </div>
             </div>
           </div>
+        </main>
+      ) : !teamDetails ? (
+        /* Onboarding Screen */
+        <main className="flex-1 relative z-10 max-w-7xl w-full mx-auto px-6 py-12 md:py-24 flex items-center justify-center">
+          {onboardingStep === 'create' ? (
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="w-full max-w-md bg-[#131b2e]/40 backdrop-blur-xl border border-white/5 shadow-2xl rounded-3xl p-8 text-center relative overflow-hidden"
+            >
+              <div className="absolute -top-12 -left-12 w-32 h-32 rounded-full bg-purple-600/10 blur-2xl"></div>
+              <div className="absolute -bottom-12 -right-12 w-32 h-32 rounded-full bg-blue-600/10 blur-2xl"></div>
+              
+              <div className="w-16 h-16 mx-auto rounded-2xl bg-gradient-to-tr from-purple-500/20 to-blue-500/20 border border-purple-500/30 flex items-center justify-center text-purple-400 mb-6 shadow-lg shadow-purple-500/10 animate-bounce">
+                <Users className="w-8 h-8" />
+              </div>
+
+              <h2 className="text-2xl font-extrabold text-white mb-2">Create Your Team</h2>
+              <p className="text-slate-400 text-xs mb-8">Set up your workspace and invite team members to start tracking daily pulse updates.</p>
+
+              <form onSubmit={handleCreateTeam} className="space-y-5 text-left">
+                <div>
+                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-2 pl-1">
+                    Enter your team name
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={newTeamName}
+                    onChange={(e) => setNewTeamName(e.target.value)}
+                    placeholder="e.g. Engineering Team, Design Squad"
+                    className="w-full bg-[#0a0f1d]/60 border border-slate-800/80 rounded-xl px-4 py-3 text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:border-purple-500/80 focus:ring-1 focus:ring-purple-500/30 transition-all shadow-inner"
+                  />
+                </div>
+
+                <button
+                  type="submit"
+                  disabled={creatingTeam}
+                  className="w-full py-3 bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 text-white font-bold rounded-xl text-sm shadow-lg shadow-purple-500/20 hover:shadow-purple-500/35 transition-all flex items-center justify-center space-x-2 cursor-pointer disabled:opacity-50"
+                >
+                  <span>{creatingTeam ? 'Creating Team...' : 'Create Team'}</span>
+                  <ArrowRight className="w-4 h-4" />
+                </button>
+              </form>
+            </motion.div>
+          ) : (
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              className="w-full max-w-md bg-[#131b2e]/40 backdrop-blur-xl border border-white/5 shadow-2xl rounded-3xl p-8 text-center relative overflow-hidden"
+            >
+              <div className="absolute -top-12 -left-12 w-32 h-32 rounded-full bg-purple-600/10 blur-2xl"></div>
+              <div className="absolute -bottom-12 -right-12 w-32 h-32 rounded-full bg-blue-600/10 blur-2xl"></div>
+
+              <div className="w-16 h-16 mx-auto rounded-2xl bg-gradient-to-tr from-green-500/20 to-teal-500/20 border border-green-500/30 flex items-center justify-center text-green-400 mb-6 shadow-lg shadow-green-500/10">
+                <CheckCircle2 className="w-8 h-8" />
+              </div>
+
+              <h2 className="text-2xl font-extrabold text-white mb-1">{teamDetails?.name}</h2>
+              <span className="text-[10px] font-bold bg-green-500/15 text-green-400 border border-green-500/25 px-2.5 py-0.5 rounded-full uppercase tracking-wider mb-6 inline-block">
+                Created Successfully!
+              </span>
+
+              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">
+                Your Invite Code:
+              </p>
+
+              <div className="bg-[#0a0f1d]/85 border-2 border-purple-500/40 rounded-2xl py-5 px-6 my-4 shadow-[0_0_15px_rgba(168,85,247,0.15)] flex flex-col items-center justify-center relative group">
+                <span className="text-4xl font-extrabold font-mono tracking-widest bg-gradient-to-r from-purple-400 to-indigo-300 bg-clip-text text-transparent drop-shadow">
+                  {teamDetails?.inviteCode}
+                </span>
+              </div>
+
+              <button
+                onClick={() => handleCopyCode(teamDetails?.inviteCode)}
+                className="px-4 py-2 bg-slate-800/80 hover:bg-slate-700/80 text-xs font-semibold rounded-lg text-slate-200 hover:text-white border border-slate-700/50 hover:border-slate-600 transition-all flex items-center space-x-1.5 mx-auto mb-8 cursor-pointer active:scale-95"
+              >
+                <span>{copiedCode ? 'Copied! ✅' : 'Copy Code'}</span>
+              </button>
+
+              <p className="text-slate-400 text-xs leading-relaxed mb-6">
+                Share this code with your team members so they can join your team and start syncing updates.
+              </p>
+
+              <button
+                onClick={() => {
+                  fetchDashboardData();
+                }}
+                className="w-full py-3 bg-gradient-to-r from-purple-500 to-indigo-600 hover:from-purple-600 hover:to-indigo-700 text-white font-bold rounded-xl text-sm shadow-lg shadow-purple-500/20 hover:shadow-purple-500/35 transition-all cursor-pointer flex items-center justify-center space-x-2"
+              >
+                <span>Go to Dashboard</span>
+                <ArrowRight className="w-4 h-4" />
+              </button>
+            </motion.div>
+          )}
         </main>
       ) : (
         <main className="flex-1 relative z-10 max-w-7xl w-full mx-auto px-6 py-8 md:py-12 space-y-8">

@@ -30,6 +30,11 @@ const UserSchema = new mongoose.Schema({
     default: 'member',
     required: [true, 'Please specify a role']
   },
+  teamId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Team',
+    default: null
+  },
   createdAt: {
     type: Date,
     default: Date.now

@@ -38,11 +38,13 @@ router.post('/', protect, async (req, res) => {
       updateRecord.hasBlocker = aiAnalysis.hasBlocker;
       updateRecord.blockerText = aiAnalysis.blockerText;
       updateRecord.encouragement = aiAnalysis.encouragement;
+      updateRecord.teamId = req.user.teamId;
       await updateRecord.save();
     } else {
       // Create new daily update
       updateRecord = await Update.create({
         userId: req.user.id,
+        teamId: req.user.teamId,
         updateText: fullText,
         sentiment: aiAnalysis.sentiment,
         summary: aiAnalysis.summary,

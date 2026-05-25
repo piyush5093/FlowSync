@@ -28,6 +28,7 @@ app.get('/api/health', (req, res) => {
 app.use('/api/auth', require('./routes/auth'));
 app.use('/api/updates', require('./routes/updates'));
 app.use('/api/manager', require('./routes/manager'));
+app.use('/api/teams', require('./routes/teams'));
 
 // Port Configuration
 const PORT = process.env.PORT || 5000;

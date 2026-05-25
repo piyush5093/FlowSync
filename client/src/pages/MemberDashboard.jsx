@@ -32,6 +32,11 @@ function MemberDashboard() {
   // User session state
   const [user, setUser] = useState({ name: 'Member' });
   
+  // Team states
+  const [teamDetails, setTeamDetails] = useState(null);
+  const [inviteCodeInput, setInviteCodeInput] = useState('');
+  const [joiningTeam, setJoiningTeam] = useState(false);
+
   // Dashboard data states
   const [updates, setUpdates] = useState([]);
   const [stats, setStats] = useState({
@@ -61,11 +66,47 @@ function MemberDashboard() {
 
   // Load User and data on start
   useEffect(() => {
-    const userString = localStorage.getItem('user');
-    if (userString) {
-      setUser(JSON.parse(userString));
-    }
-    fetchUserData();
+    const fetchProfileAndData = async () => {
+      try {
+        const token = localStorage.getItem('token');
+        if (token) {
+          // Fetch current profile with latest teamId
+          const profileRes = await fetch(`${API_BASE_URL}/api/auth/me`, {
+            headers: { 'Authorization': `Bearer ${token}` }
+          });
+          const profileData = await profileRes.json();
+          if (profileRes.ok && profileData.success) {
+            setUser(profileData.user);
+            localStorage.setItem('user', JSON.stringify(profileData.user));
+            
+            if (profileData.user.teamId) {
+              // Fetch team details
+              const teamRes = await fetch(`${API_BASE_URL}/api/teams/my`, {
+                headers: { 'Authorization': `Bearer ${token}` }
+              });
+              const teamData = await teamRes.json();
+              if (teamRes.ok && teamData.success) {
+                setTeamDetails(teamData.data);
+              }
+              
+              // Load updates and stats
+              await fetchUserData();
+            } else {
+              setLoading(false);
+            }
+          } else {
+            setLoading(false);
+          }
+        } else {
+          setLoading(false);
+        }
+      } catch (error) {
+        console.error('Error loading member profile:', error);
+        setLoading(false);
+      }
+    };
+
+    fetchProfileAndData();
   }, []);
 
   // Scroll to top button visibility check
@@ -92,8 +133,13 @@ function MemberDashboard() {
       const data = await response.json();
       
       if (response.ok) {
-        setUpdates(data.data.updates);
-        setStats(data.data.stats);
+        setUpdates(data.data.updates || []);
+        setStats(data.data.stats || {
+          currentStreak: 0,
+          thisWeekCount: 0,
+          moodScore: 'Neutral',
+          history7Days: []
+        });
       }
 
       // Fetch direct feedback messages
@@ -103,13 +149,78 @@ function MemberDashboard() {
       const msgData = await msgResponse.json();
       
       if (msgResponse.ok) {
-        setMessages(msgData.data);
+        setMessages(msgData.data || []);
       }
     } catch (error) {
       console.error('Error loading member data:', error);
     } finally {
       // Small artificial delay to show off beautiful skeletons
       setTimeout(() => setLoading(false), 800);
+    }
+  };
+
+  const handleCodeChange = (e) => {
+    const val = e.target.value.toUpperCase();
+    if (val.length <= 6) {
+      setInviteCodeInput(val);
+    }
+  };
+
+  const handleJoinTeam = async (e) => {
+    e.preventDefault();
+    if (!inviteCodeInput.trim() || inviteCodeInput.length !== 6) return;
+    
+    setJoiningTeam(true);
+    try {
+      const token = localStorage.getItem('token');
+      const response = await fetch(`${API_BASE_URL}/api/teams/join`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ inviteCode: inviteCodeInput.toUpperCase() })
+      });
+      const data = await response.json();
+      
+      if (response.ok && data.success) {
+        setToastMsg(data.message);
+        setShowToast(true);
+        setTimeout(() => setShowToast(false), 3000);
+        
+        // Update user state and local storage
+        const profileRes = await fetch(`${API_BASE_URL}/api/auth/me`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        const profileData = await profileRes.json();
+        if (profileRes.ok && profileData.success) {
+          setUser(profileData.user);
+          localStorage.setItem('user', JSON.stringify(profileData.user));
+        }
+        
+        // Fetch team details
+        const teamRes = await fetch(`${API_BASE_URL}/api/teams/my`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        const teamData = await teamRes.json();
+        if (teamRes.ok && teamData.success) {
+          setTeamDetails(teamData.data);
+        }
+        
+        // Fetch user data
+        await fetchUserData();
+      } else {
+        setToastMsg(data.message || 'Failed to join team');
+        setShowToast(true);
+        setTimeout(() => setShowToast(false), 3000);
+      }
+    } catch (err) {
+      console.error(err);
+      setToastMsg('Error connecting to backend services');
+      setShowToast(true);
+      setTimeout(() => setShowToast(false), 3000);
+    } finally {
+      setJoiningTeam(false);
     }
   };
 
@@ -388,6 +499,13 @@ function MemberDashboard() {
               </AnimatePresence>
             </div>
 
+            {/* Desktop Team Name Badge in Navbar */}
+            {teamDetails && (
+              <div className="hidden sm:flex items-center space-x-1.5 px-3 py-1.5 bg-blue-500/10 border border-blue-500/20 text-blue-400 text-xs font-bold rounded-full mr-2 shadow-inner">
+                <span>{teamDetails.name}</span>
+              </div>
+            )}
+
             {/* Desktop Logout & Avatar */}
             <div className="hidden sm:flex items-center space-x-2 border-l border-slate-800 pl-3">
               <div className="w-8 h-8 rounded-full bg-blue-500/10 border border-blue-500/30 flex items-center justify-center text-xs font-bold text-blue-400">
@@ -430,6 +548,16 @@ function MemberDashboard() {
               <span className="bg-gradient-to-r from-blue-400 to-purple-400 bg-clip-text text-transparent">{user.name}</span>
               <span>👋</span>
             </div>
+
+            {teamDetails && (
+              <div className="flex items-center justify-between p-3 bg-blue-500/5 border border-blue-500/10 rounded-xl">
+                <span className="text-xs text-slate-400 font-semibold">Joined Team</span>
+                <span className="text-blue-400 text-xs font-bold bg-blue-500/10 px-2.5 py-1 rounded-lg">
+                  {teamDetails.name}
+                </span>
+              </div>
+            )}
+
             <div className="flex items-center justify-between pt-2">
               <div className="flex items-center space-x-2">
                 <div className="w-8 h-8 rounded-full bg-blue-500/10 border border-blue-500/30 flex items-center justify-center text-xs font-bold text-blue-400">
@@ -484,6 +612,50 @@ function MemberDashboard() {
               </div>
             </div>
           </div>
+        </main>
+      ) : !teamDetails ? (
+        /* Onboarding Screen */
+        <main className="flex-1 relative z-10 max-w-7xl w-full mx-auto px-6 py-12 md:py-24 flex items-center justify-center">
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="w-full max-w-md bg-[#131b2e]/40 backdrop-blur-xl border border-white/5 shadow-2xl rounded-3xl p-8 text-center relative overflow-hidden"
+          >
+            <div className="absolute -top-12 -left-12 w-32 h-32 rounded-full bg-purple-600/10 blur-2xl"></div>
+            <div className="absolute -bottom-12 -right-12 w-32 h-32 rounded-full bg-blue-600/10 blur-2xl"></div>
+
+            <div className="w-16 h-16 mx-auto rounded-2xl bg-gradient-to-tr from-purple-500/20 to-blue-500/20 border border-purple-500/30 flex items-center justify-center text-purple-400 mb-6 shadow-lg shadow-purple-500/10 animate-bounce">
+              <Activity className="w-8 h-8" />
+            </div>
+
+            <h2 className="text-2xl font-extrabold text-white mb-2">Join Your Team</h2>
+            <p className="text-slate-400 text-xs mb-8">Enter the 6-digit invite code provided by your team manager to link your dashboard.</p>
+
+            <form onSubmit={handleJoinTeam} className="space-y-5 text-left">
+              <div>
+                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-2 pl-1">
+                  Invite Code
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={inviteCodeInput}
+                  onChange={handleCodeChange}
+                  placeholder="e.g. FL4829"
+                  className="w-full bg-[#0a0f1d]/60 border border-slate-800/80 rounded-xl px-4 py-3 text-center text-2xl font-extrabold font-mono tracking-widest text-white placeholder-slate-600 focus:outline-none focus:border-purple-500/80 focus:ring-1 focus:ring-purple-500/30 transition-all shadow-inner uppercase"
+                />
+              </div>
+
+              <button
+                type="submit"
+                disabled={joiningTeam || inviteCodeInput.length !== 6}
+                className="w-full py-3 bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 text-white font-bold rounded-xl text-sm shadow-lg shadow-purple-500/20 hover:shadow-purple-500/35 transition-all flex items-center justify-center space-x-2 cursor-pointer disabled:opacity-50"
+              >
+                <span>{joiningTeam ? 'Joining Team...' : 'Join Team'}</span>
+                <ArrowRight className="w-4 h-4" />
+              </button>
+            </form>
+          </motion.div>
         </main>
       ) : (
         <main className="flex-1 relative z-10 max-w-7xl w-full mx-auto px-6 py-8 md:py-12 grid grid-cols-1 lg:grid-cols-10 gap-8">

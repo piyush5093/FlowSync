@@ -3,6 +3,7 @@ const router = express.Router();
 const User = require('../models/User');
 const Update = require('../models/Update');
 const Message = require('../models/Message');
+const Team = require('../models/Team');
 const { protect, authorize } = require('../middleware/authMiddleware');
 const { generateTeamSummary, getSmartSuggestion } = require('../services/groqService');
 
@@ -15,8 +16,14 @@ router.use(authorize('manager'));
 // @access  Private (Manager only)
 router.get('/team', async (req, res) => {
   try {
-    // 1. Fetch all members
-    const members = await User.find({ role: 'member' }).select('-password');
+    // Find the manager's team
+    const team = await Team.findOne({ managerId: req.user.id });
+    if (!team) {
+      return res.json({ success: true, data: [] });
+    }
+
+    // 1. Fetch team members
+    const members = await User.find({ _id: { $in: team.members } }).select('-password');
 
     // 2. Fetch updates for the last 7 days (today and 6 days prior)
     const today = new Date();
@@ -26,7 +33,8 @@ router.get('/team', async (req, res) => {
     sevenDaysAgo.setDate(today.getDate() - 6);
 
     const weeklyUpdates = await Update.find({
-      date: { $gte: sevenDaysAgo, $lte: today }
+      date: { $gte: sevenDaysAgo, $lte: today },
+      teamId: team._id
     });
 
     // Group updates by userId
@@ -106,11 +114,25 @@ router.get('/team', async (req, res) => {
 // @access  Private (Manager only)
 router.get('/ai-summary', async (req, res) => {
   try {
+    const team = await Team.findOne({ managerId: req.user.id });
+    if (!team) {
+      return res.json({
+        success: true,
+        data: {
+          overallMood: 'Neutral',
+          summary: 'No team configured yet. Create a team to generate summaries.',
+          topAchievement: 'None.',
+          mainBlocker: 'None.',
+          suggestion: 'Go to your dashboard to create a team.'
+        }
+      });
+    }
+
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
     // Fetch today's updates and populate member name
-    const updates = await Update.find({ date: today }).populate('userId', 'name');
+    const updates = await Update.find({ date: today, teamId: team._id }).populate('userId', 'name');
 
     if (updates.length === 0) {
       return res.json({
@@ -148,6 +170,11 @@ router.get('/ai-summary', async (req, res) => {
 // @access  Private (Manager only)
 router.get('/updates/weekly', async (req, res) => {
   try {
+    const team = await Team.findOne({ managerId: req.user.id });
+    if (!team) {
+      return res.json({ success: true, data: [] });
+    }
+
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
@@ -156,7 +183,8 @@ router.get('/updates/weekly', async (req, res) => {
     sevenDaysAgo.setDate(today.getDate() - 6);
 
     const updates = await Update.find({
-      date: { $gte: sevenDaysAgo, $lte: today }
+      date: { $gte: sevenDaysAgo, $lte: today },
+      teamId: team._id
     });
 
     // Map dates to counts
@@ -193,6 +221,11 @@ router.get('/updates/weekly', async (req, res) => {
 router.get('/member/:id', async (req, res) => {
   try {
     const memberId = req.params.id;
+
+    const team = await Team.findOne({ managerId: req.user.id });
+    if (!team || !team.members.includes(memberId)) {
+      return res.status(403).json({ success: false, message: 'Not authorized to view this member' });
+    }
 
     // Fetch member user details
     const member = await User.findOne({ _id: memberId, role: 'member' }).select('-password');
@@ -271,6 +304,11 @@ router.post('/message', async (req, res) => {
     const { receiverId, messageText } = req.body;
     if (!receiverId || !messageText || !messageText.trim()) {
       return res.status(400).json({ success: false, message: 'Receiver ID and message text are required' });
+    }
+
+    const team = await Team.findOne({ managerId: req.user.id });
+    if (!team || !team.members.includes(receiverId)) {
+      return res.status(403).json({ success: false, message: 'Not authorized to message this member' });
     }
 
     const receiver = await User.findOne({ _id: receiverId, role: 'member' });

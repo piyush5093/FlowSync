@@ -546,7 +546,7 @@ function ManagerDashboard() {
           </div>
 
           {/* Center Page Title */}
-          <h1 className="text-sm font-bold text-slate-200 bg-slate-900/40 border border-slate-800 px-4 py-2 rounded-full hidden xs:block">
+          <h1 className="text-sm font-bold text-slate-200 bg-slate-900/40 border border-slate-800 px-4 py-2 rounded-full hidden sm:block">
             Team Overview
           </h1>
 
@@ -557,7 +557,7 @@ function ManagerDashboard() {
             {teamDetails && (
               <button
                 onClick={() => handleCopyCode(teamDetails.inviteCode)}
-                className="hidden xs:flex items-center space-x-1.5 px-3.5 py-1.5 bg-purple-500/10 hover:bg-purple-500/15 border border-purple-500/25 text-purple-400 hover:text-purple-300 text-xs font-bold rounded-full transition-all cursor-pointer shadow-inner mr-2"
+                className="hidden sm:flex items-center space-x-1.5 px-3.5 py-1.5 bg-purple-500/10 hover:bg-purple-500/15 border border-purple-500/25 text-purple-400 hover:text-purple-300 text-xs font-bold rounded-full transition-all cursor-pointer shadow-inner mr-2"
               >
                 <span>Team Code: {teamDetails.inviteCode}</span>
                 <span className="text-[10px] opacity-70 ml-1">
@@ -1030,7 +1030,7 @@ function ManagerDashboard() {
           </div>
 
           {/* MAIN SECTION HEADING */}
-          <div className="flex flex-col xs:flex-row xs:items-center justify-between gap-2 border-b border-slate-900/60 pb-3">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-900/60 pb-3">
             <h2 className="text-xl font-extrabold text-white tracking-tight">Today's Team Pulse</h2>
             <span className="text-xs font-semibold text-slate-550">{getFormattedDate()}</span>
           </div>
